@@ -1,0 +1,14 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Token cache
+token_cache.json
+*.token
+
+# Python artifacts
+__pycache__/
+venv/
+.venv/
+*.pyc
