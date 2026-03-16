@@ -1,0 +1,47 @@
+name: Sync Strava Activities
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: "Start date (YYYY-MM-DD) — leave blank for incremental sync"
+        required: false
+        default: ""
+      end_date:
+        description: "End date (YYYY-MM-DD) — leave blank for no upper bound"
+        required: false
+        default: ""
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests PyYAML python-dotenv
+
+      - name: Run sync script
+        run: python sync_activities.py --start "${{ github.event.inputs.start_date }}" --end "${{ github.event.inputs.end_date }}"
+        env:
+          STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}
+          STRAVA_CLIENT_SECRET: ${{ secrets.STRAVA_CLIENT_SECRET }}
+          STRAVA_REFRESH_TOKEN: ${{ secrets.STRAVA_REFRESH_TOKEN }}
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "Strava Sync Bot"
+          git config --global user.email "bot@noreply.github.com"
+          git add activities.yaml
+          git diff --cached --quiet && echo "No changes to commit" || \
+            git commit -m "chore: update activities archive [skip ci]" && git push

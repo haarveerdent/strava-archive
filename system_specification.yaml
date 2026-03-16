@@ -1,0 +1,136 @@
+system_metadata:
+  project_name: "Strava YAML Archive Utility & Dashboard (Open Source Edition)"
+  version: "1.6.0"
+  description: "A zero-cost system to extract Strava activities into a machine-readable YAML archive, featuring strict incremental updates, custom time-range extraction, and a GitHub Pages front-end dashboard."
+  target_format: "YAML 1.2"
+
+authentication_protocol:
+  provider: "Strava API v3 (Free Tier)"
+  mechanism: "OAuth 2.0"
+  required_scopes:
+    - "read"
+    - "activity:read_all"
+  token_management:
+    initial_setup: "Manual one-time authorization via browser to obtain initial Refresh Token."
+    storage: "GitHub Secrets (Free) or Local Environment Variables (.env)."
+    auto_refresh: "Use Refresh Token to generate short-lived Access Tokens via automated scripts."
+    required_secrets:
+      - STRAVA_CLIENT_ID
+      - STRAVA_CLIENT_SECRET
+      - STRAVA_REFRESH_TOKEN
+
+zero_cost_infrastructure:
+  compute:
+    provider: "GitHub Actions"
+    tier: "Free (2,000 mins/month for public/private repos)"
+    trigger: "Manual execution via user click (workflow_dispatch) with optional date parameters"
+  storage:
+    primary: "Git Repository (YAML files stored in the repo itself)"
+    capacity: "Up to 1GB-2GB (standard Git repo limit before performance degradation)"
+  hosting:
+    provider: "GitHub Pages"
+    tier: "Free static site hosting"
+    data_source: "Directly fetches the 'activities.yaml' file from the repository via relative path."
+  programming_language:
+    backend: "Python 3.x (requests, PyYAML)"
+    frontend: "HTML, CSS, Vanilla JS (js-yaml for parsing, Chart.js for visualization via CDN)"
+
+data_extraction_logic:
+  endpoint: "https://www.strava.com/api/v3/athlete/activities"
+  execution_modes:
+    incremental_sync_default: "If no dates are provided, script MUST check existing YAML for latest 'start_date' and use 'after' API parameter to fetch only new data."
+    custom_time_range: "If user inputs 'start_date' and/or 'end_date', script translates these to UNIX timestamps and uses 'after' and 'before' parameters to fetch specific data, bypassing the incremental check."
+  free_tier_optimization:
+    fallback: "If file is empty/missing and no dates are provided, fetch all historical data within rate limits."
+    rate_limit_compliance: "Script must sleep/exit if X-RateLimit-Usage headers approach 100/15min."
+
+output_schema_definition:
+  structure: "Map (Date-Keyed)"
+  key_format: "YYYY-MM-DD"
+  activity_fields:
+    id: "Integer"
+    name: "String"
+    sport_type: "String"
+    distance_km: "Float"
+    moving_time_sec: "Integer"
+    elevation_gain_m: "Float"
+
+frontend_architecture:
+  entry_point: "index.html in the repository root or /docs folder."
+  data_ingestion: "Fetch './activities.yaml' on page load and parse using the 'js-yaml' CDN library."
+  suggested_features:
+    - "Activity Table: List of all synced activities."
+    - "Summary Stats: Total distance and elevation grouped by sport_type."
+    - "Visualizations: Simple bar charts for weekly/monthly distance using Chart.js."
+
+github_actions_workflow:
+  file_path: ".github/workflows/sync_strava.yml"
+  trigger: 
+    type: "on: workflow_dispatch"
+    inputs:
+      start_date: "Optional string (YYYY-MM-DD). Start of custom time range."
+      end_date: "Optional string (YYYY-MM-DD). End of custom time range."
+  steps:
+    - name: "Checkout code"
+      action: "actions/checkout@v3"
+    - name: "Set up Python"
+      action: "actions/setup-python@v4"
+    - name: "Install dependencies"
+      command: "pip install requests PyYAML"
+    - name: "Run sync script"
+      command: "python sync_activities.py --start '${{ github.event.inputs.start_date }}' --end '${{ github.event.inputs.end_date }}'"
+      env:
+        STRAVA_CLIENT_ID: "${{ secrets.STRAVA_CLIENT_ID }}"
+        STRAVA_CLIENT_SECRET: "${{ secrets.STRAVA_CLIENT_SECRET }}"
+        STRAVA_REFRESH_TOKEN: "${{ secrets.STRAVA_REFRESH_TOKEN }}"
+    - name: "Commit and Push changes"
+      command: |
+        git config --global user.name 'Strava Sync Bot'
+        git config --global user.email 'bot@noreply.github.com'
+        git add activities.yaml
+        git commit -m "Update activities archive [skip ci]" || exit 0
+        git push
+
+detailed_implementation_plan:
+  phase_1_authentication_setup:
+    step_1: "Register Strava API application at https://www.strava.com/settings/api to get Client ID and Secret."
+    step_2: "Construct the manual OAuth URL with 'activity:read_all' scope."
+    step_3: "Authorize via browser, intercept the redirect URL, and extract the authorization 'code'."
+    step_4: "Make a one-time POST request to /oauth/token to exchange the 'code' for a persistent 'refresh_token'."
+  
+  phase_2_local_script_development:
+    step_1: "Create a Python virtual environment and install 'requests', 'PyYAML', and 'python-dotenv'."
+    step_2: "Write token refresh logic: POST to /oauth/token using the 'refresh_token' to get a fresh 'access_token'."
+    step_3: "Implement CLI arguments in Python using 'argparse' to accept optional '--start' and '--end' dates."
+    step_4: "Implement logic branch: If CLI dates exist, convert to UNIX timestamps for 'before'/'after' API params. Else, parse 'activities.yaml' for the most recent date to use as the 'after' param."
+    step_5: "Write the API fetch loop: GET /athlete/activities using pagination and the determined UNIX timestamps."
+  
+  phase_3_data_transformation:
+    step_1: "Filter raw Strava JSON responses down to the fields defined in output_schema_definition."
+    step_2: "Convert metrics (e.g., meters to kilometers for distance)."
+    step_3: "Group extracted activities by 'YYYY-MM-DD' keys."
+    step_4: "Merge new records into the existing YAML structure, ensuring no duplicate IDs are appended or overwritten incorrectly."
+    step_5: "Write the updated dictionary back to 'activities.yaml'."
+
+  phase_4_github_actions_automation:
+    step_1: "Initialize a private/public GitHub repository and push the Python script."
+    step_2: "Navigate to Repo Settings -> Secrets and variables -> Actions, and add the three STRAVA_* secrets."
+    step_3: "Create the '.github/workflows/sync_strava.yml' file."
+    step_4: "Configure 'workflow_dispatch' trigger with 'inputs' for start_date and end_date so users can specify ranges in the GitHub UI."
+  
+  phase_5_testing_and_monitoring:
+    step_1: "Run the workflow manually via GitHub Actions UI without inputs to verify standard incremental pull."
+    step_2: "Run the workflow again using the 'Run workflow' dropdown inputs to specify a custom date range."
+    step_3: "Verify that 'activities.yaml' correctly appends only the requested data and commits cleanly."
+
+  phase_6_frontend_dashboard:
+    step_1: "Create an 'index.html' file in the repository."
+    step_2: "Import 'js-yaml' via CDN to parse the 'activities.yaml' file using JavaScript fetch()."
+    step_3: "Build out a simple UI to display total distances, activity lists, and visualizations."
+    step_4: "Go to Repo Settings -> Pages, and enable GitHub Pages on the 'main' branch."
+
+developer_notes:
+  - "To keep it free, do not use external databases; Git is your database."
+  - "For GitHub Pages to work, the repository must be Public (unless you have a GitHub Pro/Team account)."
+  - "Ensure .gitignore excludes any sensitive token cache files; use GitHub Secrets for CLIENT_SECRET and REFRESH_TOKEN."
+  - "Important: Use '[skip ci]' in commit messages to prevent the action from triggering itself in an infinite loop."
